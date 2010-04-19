@@ -71,6 +71,8 @@ sub make_sentence
 
 #    return ($sentence, $part_num) unless (defined $part_num);
 
+    $matched_word =~ s/\\//g;
+    
     $sentence  = "【word】$matched_word\n";
     $sentence .= "【community】$co_name (コミュ人数 $part_num 人)\n";
     $sentence .= "【title】$title\n";
