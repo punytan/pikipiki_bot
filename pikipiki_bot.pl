@@ -120,7 +120,7 @@ sub http_request_cb {
     
     return if (!defined $matched_words[0] );
 
-    my $body_xml = XMLin(decode_utf8 $body);
+    my $body_xml = XMLin($body);
     http_request (
         GET     => "http://live.nicovideo.jp/watch/lv$lv_num",
         timeout => 10,
@@ -202,7 +202,6 @@ my $nicolive_status_w = AnyEvent->timer(
     cb       => sub { on_status_update_timer(@_); }
 );
 
-
 $cv->recv;
 
 sub on_status_update_timer {
@@ -228,8 +227,7 @@ sub on_status_update_timer {
     );
 }
 
-sub get_alertinfo
-{
+sub get_alertinfo {
     use LWP::UserAgent;
     my $url = 'http://live.nicovideo.jp/api/getalertinfo';
     my $ua  = LWP::UserAgent->new();
