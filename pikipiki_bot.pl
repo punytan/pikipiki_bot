@@ -140,6 +140,7 @@ sub is_matched {
         return undef if $user eq $_;
     }
 
+    $matched_words[0] =~ s/\\//g;
     return $matched_words[0];
 }
 
@@ -150,7 +151,7 @@ sub construct_status {
     my $user = $scraper->scrape($body);
 
     my $user_name = $user ? $user : '-';
-    my $part = $body =~ m!参加人数：(\d+)<br>!gms ? $1 : 0;
+    my $part = $body =~ m!参加人数：<strong style="font-size:14px;">(\d+)</strong>!gms ? $1 : 0;
     my $title = substr $xml->{streaminfo}{title}, 0, 30;
     my $com = substr $xml->{communityinfo}{name}, 0, 30;
 
