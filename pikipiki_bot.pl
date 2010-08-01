@@ -25,10 +25,10 @@ my $config = decode_json($json_text);
 my $twitty = AnyEvent::Twitter->new(%$config);
 
 my @words = (
-    'プログラミング', 'プログラマ', 'C言語', 'C\+\+', 'C#', 'F#', 'Objective-C', 'COBOL',
+    'C言語', 'C\+\+', 'C#', 'F#', 'Objective-C', 'COBOL',
     'D言語', 'Delphi', 'FORTRAN', 'Groovy', 'JavaScript', 'Java', 'Pascal', 'Perl', 'Python',
     'Ruby', '機械語', 'アセンブリ', 'アセンブラ', 'Erlang', 'Haskell', 'LISP', 'OCaml', 'Scala',
-    'ActionScript', 'Smalltalk',
+    'ActionScript', 'Smalltalk', 'プログラミング', 'プログラマ',
 ); # Regexp. Except PHP, SQL and AWK
 
 my @normalized_words;
