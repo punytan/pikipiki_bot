@@ -5,7 +5,7 @@ use warnings;
 use utf8;
 use Encode;
 use Data::Dumper;
-use feature 'say';
+use 5.12.1;
 
 use AnyEvent;
 use AnyEvent::HTTP;
@@ -106,7 +106,7 @@ sub reader {
                     my $body = decode_utf8 shift;
                     return unless $body;
 
-                    my $status = construct_status($body, XMLin($xml_str), $word);
+                    my $status = construct_status($body, XMLin($xml_str), $word, \%stream);
                     $twitty->request(
                         api => 'statuses/update',
                         method => 'POST',
@@ -145,7 +145,7 @@ sub is_matched {
 }
 
 sub construct_status {
-    my ($body, $xml, $word) = @_;
+    my ($body, $xml, $word, $stream) = @_;
 
     my $scraper = scraper { process 'span#pedia a', 'name' => 'TEXT'; };
     my $user = $scraper->scrape($body);
@@ -155,7 +155,7 @@ sub construct_status {
     my $title = substr $xml->{streaminfo}{title}, 0, 30;
     my $com = substr $xml->{communityinfo}{name}, 0, 30;
 
-    return "[$word] $com ($part 人) - $title by $user->{name} http://nico.ms/$xml->{request_id} #nicolive";
+    return "[$word] $com (${part}人) - $title / $user->{name} http://nico.ms/$xml->{request_id} #nicolive [$stream->{co}]";
 }
 
 __END__
