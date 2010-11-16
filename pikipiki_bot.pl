@@ -19,7 +19,7 @@ use XML::Simple;
 use Web::Scraper;
 use Unicode::Normalize qw/NFKC/;
 
-local $AnyEvent::HTTP::USERAGENT = 'pikipiki_bot http://github.com/punytan/pikipiki_bot';
+local $AnyEvent::HTTP::USERAGENT = 'pikipiki_bot http://twitter.com/pikipiki_bot';
 
 my $json_text = slurp "/home/puny/.account/twitter/pikipiki_bot.json";
 my $config = decode_json($json_text);
