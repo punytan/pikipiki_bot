@@ -8,16 +8,13 @@ use AnyEvent::Socket;
 use AnyEvent::Handle;
 use AnyEvent::Twitter;
 
-use JSON;
-use Perl6::Slurp;
 use XML::Simple;
 use Web::Scraper;
 use Unicode::Normalize qw/NFKC/;
 
 local $AnyEvent::HTTP::USERAGENT = 'pikipiki_bot http://twitter.com/pikipiki_bot';
 
-my $json_text = slurp "/home/puny/.account/twitter/pikipiki_bot.json";
-my $config = decode_json($json_text);
+my $config = do "/home/puny/.account/twitter/pikipiki_bot.pl" or die $!;
 
 my $twitty = AnyEvent::Twitter->new(%$config);
 
@@ -35,8 +32,7 @@ for (@words) {
     push @normalized_words, $word;
 }
 
-my $json_string = slurp 'ng.json';
-my $ng = decode_json($json_string);
+my $ng = do './ng.pl' or die $!;
 my @ng_users = @$ng;
 
 my $server = {};
