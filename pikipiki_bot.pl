@@ -2,9 +2,7 @@ use common::sense;
 use Encode;
 use Data::Dumper;
 
-use AnyEvent;
 use AnyEvent::HTTP;
-use AnyEvent::Socket;
 use AnyEvent::Handle;
 use AnyEvent::Twitter;
 
@@ -14,9 +12,11 @@ use Unicode::Normalize qw/NFKC/;
 
 local $AnyEvent::HTTP::USERAGENT = 'pikipiki_bot http://twitter.com/pikipiki_bot';
 
-my $config = do "/home/puny/.account/twitter/pikipiki_bot.pl" or die $!;
+my $config   = do "oauth.pl" or die $!;
+my @ng_users = do 'ng.pl'    or die $!;
 
 my $twitty = AnyEvent::Twitter->new(%$config);
+my $server = {};
 
 my @words = (
     'C言語', 'C\+\+', 'C#', 'F#', 'Objective-C', 'COBOL',
@@ -32,10 +32,6 @@ for (@words) {
     push @normalized_words, $word;
 }
 
-my @ng_users = do './ng.pl' or die $!;
-
-my $server = {};
-
 my $server_cv = AE::cv;
 http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
     my ($body, $hdr) = @_;
@@ -47,45 +43,35 @@ http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
     die "Server status is not OK" unless ($xml->{status} eq 'ok');
 
     $server = $xml->{ms};
+    $server->{tag} = XMLout({
+        thread   => $xml->{ms}{thread},
+        res_from => '-1',
+        version  => '20061206',
+    }, RootName  => 'thread') . "\0";
+
     $server_cv->send;
 };
 $server_cv->recv;
 
+while (1) {
 my $cv = AE::cv;
-tcp_connect $server->{addr} => $server->{port}, sub {
-    my ($fh) = @_ or die $!;
-
-    my $handle; $handle = new AnyEvent::Handle
-        fh       => $fh,
-        on_error => sub {
-            warn "Error $_[2]";
-            $_[0]->destroy;
-        },
-        on_eof   => sub {
-            $handle->destroy;
-            warn "Done.";
-        };
-
-    my $tag_attr = {
-        thread   => $server->{thread},
-        res_from => '-1',
-        version  => '20061206',
-    };
-
-    $handle->push_write(XMLout($tag_attr, RootName => 'thread') . "\0");
-    $handle->push_read(line => "\0", \&reader);
-};
+my $handle; $handle = AnyEvent::Handle->new(
+    connect    => [$server->{addr}, $server->{port}],
+    on_error   => sub { warn "Error $_[2]"; $_[0]->destroy; $cv->send },
+    on_eof     => sub { $handle->destroy; warn "Done."; $cv->send },
+    on_connect => sub { $handle->push_write($server->{tag}) },
+    on_connect_error => sub { warn "Connect Error"; $cv->send },
+);
+$handle->push_read(line => "\0", \&reader);
 $cv->recv;
+}
 
 exit;
 
 sub reader {
     my ($handle, $tag) = @_;
 
-    $cv->send unless $handle;
-
     say $tag;
-
     if ($tag =~ />([^,]+),([^,]+),([^,]+)</) {
         my %stream = (lv => $1, co => $2, user => $3);
 
@@ -147,7 +133,8 @@ sub construct_status {
     my $title = substr $xml->{streaminfo}{title}, 0, 30;
     my $com = substr $xml->{communityinfo}{name}, 0, 30;
 
-    return "[$word] $com (${part}人) - $title / $user->{name} http://nico.ms/$xml->{request_id} #nicolive [$stream->{co}]";
+    return sprintf "[%s] %s (%s人) - %s / %s http://nico.ms/%s #nicolive [%s]",
+            $word, $com, $part, $title, $user->{name}, $xml->{request_id}, $stream->{co};
 }
 
 __END__
