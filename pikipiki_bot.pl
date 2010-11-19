@@ -32,8 +32,7 @@ for (@words) {
     push @normalized_words, $word;
 }
 
-my $ng = do './ng.pl' or die $!;
-my @ng_users = @$ng;
+my @ng_users = do './ng.pl' or die $!;
 
 my $server = {};
 
