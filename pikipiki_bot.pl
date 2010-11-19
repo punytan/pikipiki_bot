@@ -41,10 +41,10 @@ http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
     my ($body, $hdr) = @_;
     
     warn time, " $hdr->{Status}: $hdr->{Reason} ";
-    exit unless ($hdr->{Status} =~ /^2/);
+    die "Failed to getalertinfo" unless ($hdr->{Status} =~ /^2/);
 
     my $xml = XMLin($body);
-    exit unless ($xml->{status} eq 'ok');
+    die "Server status is not OK" unless ($xml->{status} eq 'ok');
 
     $server = $xml->{ms};
     $server_cv->send;
