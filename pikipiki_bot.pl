@@ -11,12 +11,12 @@ use Web::Scraper;
 use Unicode::Normalize qw/NFKC/;
 
 local $AnyEvent::HTTP::USERAGENT = 'pikipiki_bot http://twitter.com/pikipiki_bot';
+$| = 1;
 
 my $config   = do "oauth.pl" or die $!;
 my @ng_users = do 'ng.pl'    or die $!;
 
 my $twitty = AnyEvent::Twitter->new(%$config);
-my $server = {};
 
 my @words = (
     'C言語', 'C\+\+', 'C#', 'F#', 'Objective-C', 'COBOL',
@@ -32,41 +32,48 @@ for (@words) {
     push @normalized_words, $word;
 }
 
-my $server_cv = AE::cv;
-http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
-    my ($body, $hdr) = @_;
-    
-    warn time, " $hdr->{Status}: $hdr->{Reason} ";
-    die "Failed to getalertinfo" unless ($hdr->{Status} =~ /^2/);
-
-    my $xml = XMLin($body);
-    die "Server status is not OK" unless ($xml->{status} eq 'ok');
-
-    $server = $xml->{ms};
-    $server->{tag} = XMLout({
-        thread   => $xml->{ms}{thread},
-        res_from => '-1',
-        version  => '20061206',
-    }, RootName  => 'thread') . "\0";
-
-    $server_cv->send;
-};
-$server_cv->recv;
-
 while (1) {
-my $cv = AE::cv;
-my $handle; $handle = AnyEvent::Handle->new(
-    connect    => [$server->{addr}, $server->{port}],
-    on_error   => sub { warn "Error $_[2]"; $_[0]->destroy; $cv->send },
-    on_eof     => sub { $handle->destroy; warn "Done."; $cv->send },
-    on_connect => sub { $handle->push_write($server->{tag}) },
-    on_connect_error => sub { warn "Connect Error"; $cv->send },
-);
-$handle->push_read(line => "\0", \&reader);
-$cv->recv;
-}
+    my $server = {};
 
-exit;
+    my $server_cv = AE::cv;
+    AnyEvent::HTTP::http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
+        my ($body, $hdr) = @_;
+
+        warn sprintf "[%s] %s: %s", time, $hdr->{Status}, $hdr->{Reason};
+
+        unless ($hdr->{Status} =~ /^2/) { warn "Failed to get alertinfo"; $server_cv->send; }
+
+        my $xml = XMLin($body);
+        if ($xml->{status} ne 'ok') { warn "Server status is not OK"; $server_cv->send; }
+
+        $server = $xml->{ms};
+        $server->{tag} = XMLout({
+            thread   => $xml->{ms}{thread},
+            res_from => '-1',
+            version  => '20061206',
+        }, RootName  => 'thread') . "\0";
+
+        $server_cv->send;
+    };
+    $server_cv->recv;
+
+    if ($server->{tag}) {
+        my $cv = AE::cv;
+        my $handle; $handle = AnyEvent::Handle->new(
+            connect    => [$server->{addr}, $server->{port}],
+            on_error   => sub { warn "Error $_[2]"; $_[0]->destroy; $cv->send },
+            on_eof     => sub { $handle->destroy; warn "Done."; $cv->send },
+            on_connect => sub { $handle->push_write($server->{tag}) },
+            on_connect_error => sub { warn "Connect Error"; $cv->send },
+        );
+        $handle->push_read(line => "\0", \&reader);
+        $cv->recv;
+    }
+
+    my $cv2 = AE::cv;
+    my $w; $w = AE::timer 10, 0, sub { warn "Waiting 10 seconds"; undef $w; $cv2->send; };
+    $cv2->recv;
+}
 
 sub reader {
     my ($handle, $tag) = @_;
@@ -75,23 +82,18 @@ sub reader {
     if ($tag =~ />([^,]+),([^,]+),([^,]+)</) {
         my %stream = (lv => $1, co => $2, user => $3);
 
-        http_get "http://live.nicovideo.jp/api/getstreaminfo/lv" . $stream{lv}, sub {
+        AnyEvent::HTTP::http_get "http://live.nicovideo.jp/api/getstreaminfo/lv" . $stream{lv}, sub {
             my ($xml_str, $hdr) = @_;
             return unless $xml_str;
 
             if (my $word = is_matched($xml_str, $stream{user})) {
-                http_get "http://live.nicovideo.jp/watch/lv" . $stream{lv}, sub {
+                AnyEvent::HTTP::http_get "http://live.nicovideo.jp/watch/lv" . $stream{lv}, sub {
+                    return unless $_[0];
                     my $body = decode_utf8 shift;
-                    return unless $body;
 
                     my $status = construct_status($body, XMLin($xml_str), $word, \%stream);
-                    $twitty->request(
-                        api => 'statuses/update',
-                        method => 'POST',
-                        params => { status => $status },
-                    sub {
-                        say encode_utf8($_[1]->{text});
-                    });
+                    $twitty->post('statuses/update', {status => $status}, sub {
+                        $_[1] ? warn encode_utf8 $_[1]->{text} : warn $_[2]; });
                 };
             }
         };
