@@ -11,7 +11,7 @@ use Web::Scraper;
 use Unicode::Normalize qw/NFKC/;
 
 local $AnyEvent::HTTP::USERAGENT = 'pikipiki_bot http://twitter.com/pikipiki_bot';
-$| = 1;
+local $| = 1;
 
 my $config   = do "oauth.pl" or die $!;
 my @ng_users = do 'ng.pl'    or die $!;
