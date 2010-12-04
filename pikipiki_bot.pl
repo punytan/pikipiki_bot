@@ -91,7 +91,7 @@ while (1) {
 
     my $cv2 = AE::cv;
     my $w; $w = AE::timer 10, 0, sub {
-        warn "[%s] Waiting 10 seconds", scalar localtime;
+        warn sprintf "[%s] Waiting 10 seconds", scalar localtime;
         undef $w;
         $cv2->send;
     };
