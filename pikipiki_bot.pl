@@ -10,27 +10,25 @@ use XML::Simple;
 use Web::Scraper;
 use Unicode::Normalize qw/NFKC/;
 
+use constant DEBUG => $ENV{PIKIPIKI_DEBUG};
+
 local $AnyEvent::HTTP::USERAGENT = 'pikipiki_bot http://twitter.com/pikipiki_bot';
 local $| = 1;
 
-my $config   = do "oauth.pl" or die $!;
-my @ng_users = do 'ng.pl'    or die $!;
+our @TWEETED;
+our @NG     = do 'config/ng.pl' or die $!;
+our $CONFIG = {};
 
-my $twitty = AnyEvent::Twitter->new(%$config);
+$CONFIG->{piki}{oauth} = do "config/piki/oauth.pl" or die $!;
+$CONFIG->{nms}{oauth}  = do "config/nms/oauth.pl"  or die $!;
 
-my @words = (
-    'C言語', 'C\+\+', 'C#', 'F#', 'Objective-C', 'COBOL',
-    'D言語', 'Delphi', 'FORTRAN', 'Groovy', 'JavaScript', 'Java', 'Pascal', 'Perl', 'Python',
-    'Ruby', '機械語', 'アセンブリ', 'アセンブラ', 'Erlang', 'Haskell', 'LISP', 'OCaml', 'Scala',
-    'ActionScript', 'Smalltalk', 'プログラミング', 'プログラマ',
-); # Regexp. Except PHP, SQL and AWK
+$CONFIG->{piki}{words} = do "config/piki/words.pl" or die $!;
+$CONFIG->{nms}{words}  = do "config/nms/words.pl"  or die $!;
 
-my @normalized_words;
-for (@words) {
-    my $word = uc NFKC $_;
-    $word =~ tr/ぁ-ん/ァ-ン/;
-    push @normalized_words, $word;
-}
+@{$CONFIG->{piki}{normalized}} = normalize(@{$CONFIG->{piki}{words}});
+@{$CONFIG->{nms}{normalized}}  = normalize(@{$CONFIG->{nms}{words}} );
+
+print Dumper [\@TWEETED, \@NG, $CONFIG] if DEBUG;
 
 while (1) {
     my $server = {};
@@ -39,12 +37,18 @@ while (1) {
     AnyEvent::HTTP::http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
         my ($body, $hdr) = @_;
 
-        warn sprintf "[%s] %s: %s", time, $hdr->{Status}, $hdr->{Reason};
+        warn sprintf "[%s] %s: %s", scalar localtime, $hdr->{Status}, $hdr->{Reason};
 
-        unless ($hdr->{Status} =~ /^2/) { warn "Failed to get alertinfo"; $server_cv->send; }
+        if (not $body or $hdr->{Status} ne '200') {
+            warn sprintf "[%s] Failed to get alertinfo", scalar localtime;
+            $server_cv->send;
+        }
 
         my $xml = XMLin($body);
-        if ($xml->{status} ne 'ok') { warn "Server status is not OK"; $server_cv->send; }
+        if ($xml->{status} ne 'ok') {
+            warn sprintf "[%s] Server status is not OK", scalar localtime;
+            $server_cv->send;
+        }
 
         $server = $xml->{ms};
         $server->{tag} = XMLout({
@@ -59,41 +63,67 @@ while (1) {
 
     if ($server->{tag}) {
         my $cv = AE::cv;
+
+        my $six_hours = 1 * 60 * 60 * 6;
+        my $timer; $timer = AE::timer $six_hours, $six_hours, sub { warn Dumper \@TWEETED; undef @TWEETED; };
+
         my $handle; $handle = AnyEvent::Handle->new(
             connect    => [$server->{addr}, $server->{port}],
-            on_error   => sub { warn "Error $_[2]"; $_[0]->destroy; $cv->send },
-            on_eof     => sub { $handle->destroy; warn "Done."; $cv->send },
             on_connect => sub { $handle->push_write($server->{tag}) },
-            on_connect_error => sub { warn "Connect Error"; $cv->send },
+            on_error   => sub {
+                warn sprintf "[%s] Error %s", scalar localtime, $_[2];
+                $_[0]->destroy;
+                $cv->send
+            },
+            on_eof     => sub {
+                $handle->destroy;
+                warn "[%s] Done.", scalar localtime;
+                $cv->send
+            },
+            on_connect_error => sub {
+                warn "[%s] Connect Error", scalar localtime;
+                $cv->send
+            },
         );
         $handle->push_read(line => "\0", \&reader);
         $cv->recv;
     }
 
     my $cv2 = AE::cv;
-    my $w; $w = AE::timer 10, 0, sub { warn "Waiting 10 seconds"; undef $w; $cv2->send; };
+    my $w; $w = AE::timer 10, 0, sub {
+        warn "[%s] Waiting 10 seconds", scalar localtime;
+        undef $w;
+        $cv2->send;
+    };
     $cv2->recv;
 }
 
 sub reader {
     my ($handle, $tag) = @_;
 
-    say $tag;
     if ($tag =~ />([^,]+),([^,]+),([^,]+)</) {
         my %stream = (lv => $1, co => $2, user => $3);
 
         AnyEvent::HTTP::http_get "http://live.nicovideo.jp/api/getstreaminfo/lv" . $stream{lv}, sub {
-            my ($xml_str, $hdr) = @_;
-            return unless $xml_str;
+            return unless $_[0];
+            my $xml_str = decode_utf8 shift;
 
-            if (my $word = is_matched($xml_str, $stream{user})) {
+            if (my $meta = is_matched($xml_str, $stream{user})) {
                 AnyEvent::HTTP::http_get "http://live.nicovideo.jp/watch/lv" . $stream{lv}, sub {
                     return unless $_[0];
                     my $body = decode_utf8 shift;
 
-                    my $status = construct_status($body, XMLin($xml_str), $word, \%stream);
-                    $twitty->post('statuses/update', {status => $status}, sub {
-                        $_[1] ? warn encode_utf8 $_[1]->{text} : warn $_[2]; });
+                    if ($meta->{type} eq 'piki' or ($meta->{type} eq 'nms' and is_over400($body))) {
+                        my $twitty = AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}});
+                        my $status = construct_status($body, XMLin($xml_str), $meta->{word}, \%stream);
+                        $twitty->post('statuses/update', {status => $status}, sub {
+                            $_[1] ? say encode_utf8 $_[1]->{text} : warn sprintf "[%s] %s", scalar localtime, $_[2];
+                            push @TWEETED, $stream{user};
+                            print Dumper \@TWEETED;
+                        });
+                    }
+
+                    print Dumper [scalar localtime, $meta] if DEBUG;
                 };
             }
         };
@@ -103,25 +133,32 @@ sub reader {
 }
 
 sub is_matched {
-    my $xml_str = shift;
-    my $user = shift;
+    my ($xml_str, $user) = @_;
 
-    my $formed = uc NFKC decode_utf8 $xml_str;
-    $formed =~ tr/ぁ-ん/ァ-ン/;
-
-    my @matched_words;
-    for (my $i = 0; $i < scalar @normalized_words; $i++) {
-        push @matched_words, $words[$i] if $formed =~ $normalized_words[$i];
-    }
-
-    return undef unless (scalar @matched_words);
-
-    for (@ng_users) {
+    for (@TWEETED) {
         return undef if $user eq $_;
     }
 
-    $matched_words[0] =~ s/\\//g;
-    return $matched_words[0];
+    my ($formed) = normalize($xml_str);
+
+    my (@matched_words, $type);
+    for my $account (keys %$CONFIG) {
+        for (my $i = 0; $i < scalar @{$CONFIG->{$account}{normalized}}; $i++) {
+            if ($formed =~ $CONFIG->{$account}{normalized}[$i]) {
+                push @matched_words, $CONFIG->{$account}{words}[$i];
+                $type = $account;
+            }
+        }
+    }
+
+    return undef unless scalar @matched_words;
+
+    for (@NG) {
+        return undef if $user eq $_;
+    }
+
+    $matched_words[0] =~ s/\\//g; # for regex of C++
+    return {word => $matched_words[0], type => $type};
 }
 
 sub construct_status {
@@ -137,6 +174,17 @@ sub construct_status {
 
     return sprintf "[%s] %s (%s人) - %s / %s http://nico.ms/%s #nicolive [%s]",
             $word, $com, $part, $title, $user->{name}, $xml->{request_id}, $stream->{co};
+}
+
+sub is_over400 {
+    my $body = shift;
+
+    my $part = $body =~ m!参加人数：<strong style="font-size:14px;">(\d+)</strong>!gms ? $1 : 0;
+    return $part > 400 ? $part : undef;
+}
+
+sub normalize {
+    return grep { my $word = uc NFKC $_; $word =~ tr/ぁ-ん/ァ-ン/; $word; } @_;
 }
 
 __END__
