@@ -77,11 +77,11 @@ while (1) {
             },
             on_eof     => sub {
                 $handle->destroy;
-                warn "[%s] Done.", scalar localtime;
+                warn sprintf "[%s] Done.", scalar localtime;
                 $cv->send
             },
             on_connect_error => sub {
-                warn "[%s] Connect Error", scalar localtime;
+                warn sprintf "[%s] Connect Error", scalar localtime;
                 $cv->send
             },
         );
