@@ -106,7 +106,8 @@ sub reader {
 
         AnyEvent::HTTP::http_get "http://live.nicovideo.jp/api/getstreaminfo/lv" . $stream{lv}, sub {
             return unless $_[0];
-            my $xml_str = decode_utf8 shift;
+            my $xml = shift;
+            my $xml_str = decode_utf8 $xml;
 
             if (my $meta = is_matched($xml_str, $stream{user})) {
                 AnyEvent::HTTP::http_get "http://live.nicovideo.jp/watch/lv" . $stream{lv}, sub {
@@ -115,7 +116,7 @@ sub reader {
 
                     if ($meta->{type} eq 'piki' or ($meta->{type} eq 'nms' and is_over400($body))) {
                         my $twitty = AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}});
-                        my $status = construct_status($body, XMLin($xml_str), $meta->{word}, \%stream);
+                        my $status = construct_status($body, XMLin($xml), $meta->{word}, \%stream);
                         $twitty->post('statuses/update', {status => $status}, sub {
                             $_[1] ? say encode_utf8 $_[1]->{text} : warn sprintf "[%s] %s", scalar localtime, $_[2];
                             push @TWEETED, $stream{user};
