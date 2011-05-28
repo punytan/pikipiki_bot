@@ -1,6 +1,6 @@
-use common::sense;
+use practical;
 use Encode;
-use Data::Dumper;
+use Data::Dumper::Concise;
 
 use AnyEvent::HTTP;
 use AnyEvent::Handle;
@@ -115,9 +115,10 @@ sub reader {
                     my $body = decode_utf8 shift;
 
                     if ($meta->{type} eq 'piki' or ($meta->{type} eq 'nms' and is_over400($body))) {
-                        my $twitty = AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}});
                         my $status = construct_status($body, XMLin($xml), $meta->{word}, \%stream);
-                        $twitty->post('statuses/update', {status => $status}, sub {
+                        AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}})->post('statuses/update', {
+                            status => $status
+                        }, sub {
                             $_[1] ? say encode_utf8 $_[1]->{text} : warn sprintf "[%s] %s", scalar localtime, $_[2];
                             push @TWEETED, $stream{user};
                             print Dumper \@TWEETED;
