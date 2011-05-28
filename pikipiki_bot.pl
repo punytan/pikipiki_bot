@@ -1,7 +1,6 @@
 use practical;
 use Encode;
-use Data::Dumper::Concise;
-
+use Data::Dumper;
 use AnyEvent::HTTP;
 use AnyEvent::Handle;
 use AnyEvent::Twitter;
@@ -37,16 +36,16 @@ while (1) {
     AnyEvent::HTTP::http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
         my ($body, $hdr) = @_;
 
-        warn sprintf "[%s] %s: %s", scalar localtime, $hdr->{Status}, $hdr->{Reason};
+        warn "$hdr->{Status}: $hdr->{Reason}";
 
         if (not $body or $hdr->{Status} ne '200') {
-            warn sprintf "[%s] Failed to get alertinfo", scalar localtime;
+            warn "Failed to get alertinfo";
             $server_cv->send;
         }
 
         my $xml = XMLin($body);
         if ($xml->{status} ne 'ok') {
-            warn sprintf "[%s] Server status is not OK", scalar localtime;
+            warn "Server status is not OK";
             $server_cv->send;
         }
 
@@ -65,23 +64,26 @@ while (1) {
         my $cv = AE::cv;
 
         my $six_hours = 1 * 60 * 60 * 6;
-        my $timer; $timer = AE::timer $six_hours, $six_hours, sub { warn Dumper \@TWEETED; undef @TWEETED; };
+        my $timer; $timer = AE::timer $six_hours, $six_hours, sub {
+            printf "[%s]\n", join ', ', @TWEETED;
+            undef @TWEETED;
+        };
 
         my $handle; $handle = AnyEvent::Handle->new(
             connect    => [$server->{addr}, $server->{port}],
             on_connect => sub { $handle->push_write($server->{tag}) },
             on_error   => sub {
-                warn sprintf "[%s] Error %s", scalar localtime, $_[2];
+                warn "Error $_[2]";
                 $_[0]->destroy;
                 $cv->send
             },
             on_eof     => sub {
                 $handle->destroy;
-                warn sprintf "[%s] Done.", scalar localtime;
+                warn "Done.";
                 $cv->send
             },
             on_connect_error => sub {
-                warn sprintf "[%s] Connect Error", scalar localtime;
+                warn "Connect Error";
                 $cv->send
             },
         );
@@ -91,7 +93,7 @@ while (1) {
 
     my $cv2 = AE::cv;
     my $w; $w = AE::timer 10, 0, sub {
-        warn sprintf "[%s] Waiting 10 seconds", scalar localtime;
+        warn "Waiting 10 seconds";
         undef $w;
         $cv2->send;
     };
@@ -119,13 +121,13 @@ sub reader {
                         AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}})->post('statuses/update', {
                             status => $status
                         }, sub {
-                            $_[1] ? say encode_utf8 $_[1]->{text} : warn sprintf "[%s] %s", scalar localtime, $_[2];
+                            $_[1] ? say encode_utf8 $_[1]->{text} : warn $_[2];
                             push @TWEETED, $stream{user};
-                            print Dumper \@TWEETED;
+                            printf "[%s]\n", join', ', @TWEETED;
                         });
                     }
 
-                    print Dumper [scalar localtime, $meta] if DEBUG;
+                    print Dumper { meta => $meta } if DEBUG;
                 };
             }
         };
@@ -186,13 +188,16 @@ sub remove_reply{
 
 sub is_over400 {
     my $body = shift;
-
     my $part = $body =~ m!参加人数：<strong style="font-size:14px;">(\d+)</strong>!gms ? $1 : 0;
     return $part > 400 ? $part : undef;
 }
 
 sub normalize {
-    return grep { my $word = uc NFKC $_; $word =~ tr/ぁ-ん/ァ-ン/; $word; } @_;
+    return grep {
+        my $word = uc NFKC $_;
+        $word =~ tr/ぁ-ん/ァ-ン/;
+        $word;
+    } @_;
 }
 
 __END__
