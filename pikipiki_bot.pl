@@ -113,11 +113,13 @@ sub reader {
             my $xml_str = decode_utf8 $xml;
             if (my $meta = is_matched($xml_str, $stream{user})) {
                 AnyEvent::HTTP::http_get "http://live.nicovideo.jp/watch/lv" . $stream{lv}, sub {
-                    return unless $_[0];
-                    my $body = decode_utf8 shift;
+                    my $res = shift;
+                    return unless $res;
 
-                    if ($meta->{type} eq 'piki' or ($meta->{type} eq 'nms' and is_over400($body))) {
+                    my $body = decode_utf8 $res;
+                    if ( $meta->{type} eq 'piki' or ( $meta->{type} eq 'nms' and is_over400($body) ) ) {
                         my $status = construct_status($body, XMLin($xml), $meta->{word}, \%stream);
+
                         AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}})->post('statuses/update', {
                             status => $status
                         }, sub {
