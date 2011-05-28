@@ -107,10 +107,10 @@ sub reader {
         my %stream = (lv => $1, co => $2, user => $3);
 
         AnyEvent::HTTP::http_get "http://live.nicovideo.jp/api/getstreaminfo/lv" . $stream{lv}, sub {
-            return unless $_[0];
             my $xml = shift;
-            my $xml_str = decode_utf8 $xml;
+            return unless $xml;
 
+            my $xml_str = decode_utf8 $xml;
             if (my $meta = is_matched($xml_str, $stream{user})) {
                 AnyEvent::HTTP::http_get "http://live.nicovideo.jp/watch/lv" . $stream{lv}, sub {
                     return unless $_[0];
