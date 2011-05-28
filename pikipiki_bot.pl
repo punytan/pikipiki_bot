@@ -162,7 +162,10 @@ sub is_matched {
     }
 
     $matched_words[0] =~ s/\\//g; # for regex of C++
-    return {word => $matched_words[0], type => $type};
+    return +{
+        word => $matched_words[0],
+        type => $type
+    };
 }
 
 sub construct_status {
