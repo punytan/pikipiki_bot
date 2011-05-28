@@ -171,13 +171,15 @@ sub construct_status {
     my $scraper = scraper { process 'span#pedia a', 'name' => 'TEXT'; };
     my $user = $scraper->scrape($body);
 
-    my $user_name = $user ? remove_reply($user) : '-';
-    my $part = $body =~ m!参加人数：<strong style="font-size:14px;">(\d+)</strong>!gms ? $1 : 0;
-    my $title = substr remove_reply($xml->{streaminfo}{title}), 0, 30;
-    my $com = substr remove_reply($xml->{communityinfo}{name}), 0, 30;
+    my $user_name = $user ? $user : '-';
+    my $part  = $body =~ m!参加人数：<strong style="font-size:14px;">(\d+)</strong>!gms ? $1 : 0;
+    my $title = substr $xml->{streaminfo}{title},   0, 30;
+    my $com   = substr $xml->{communityinfo}{name}, 0, 30;
 
-    return sprintf "[%s] %s (%s人) - %s / %s http://nico.ms/%s #nicolive [%s]",
+    my $status = sprintf "[%s] %s (%s人) - %s / %s http://nico.ms/%s #nicolive [%s]",
             $word, $com, $part, $title, $user->{name}, $xml->{request_id}, $stream->{co};
+
+    return remove_reply($status);
 }
 
 sub remove_reply{
