@@ -36,16 +36,16 @@ while (1) {
     AnyEvent::HTTP::http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
         my ($body, $hdr) = @_;
 
-        warn "$hdr->{Status}: $hdr->{Reason}";
+        warn "*** $hdr->{Status}: $hdr->{Reason}";
 
         if (not $body or $hdr->{Status} ne '200') {
-            warn "Failed to get alertinfo";
+            warn "*** Failed to get alertinfo";
             $server_cv->send;
         }
 
         my $xml = XMLin($body);
         if ($xml->{status} ne 'ok') {
-            warn "Server status is not OK";
+            warn "*** Server status is not OK";
             $server_cv->send;
         }
 
@@ -65,7 +65,7 @@ while (1) {
 
         my $six_hours = 1 * 60 * 60 * 6;
         my $timer; $timer = AE::timer $six_hours, $six_hours, sub {
-            printf "[%s]\n", join ', ', @TWEETED;
+            printf "Status of tweeted array:\n\t[%s]\n", join ', ', @TWEETED;
             undef @TWEETED;
         };
 
@@ -73,17 +73,17 @@ while (1) {
             connect    => [$server->{addr}, $server->{port}],
             on_connect => sub { $handle->push_write($server->{tag}) },
             on_error   => sub {
-                warn "Error $_[2]";
+                warn "*** Error $_[2]";
                 $_[0]->destroy;
                 $cv->send
             },
             on_eof     => sub {
                 $handle->destroy;
-                warn "Done.";
+                warn "*** Done.";
                 $cv->send
             },
             on_connect_error => sub {
-                warn "Connect Error";
+                warn "*** Connect Error";
                 $cv->send
             },
         );
@@ -93,7 +93,7 @@ while (1) {
 
     my $cv2 = AE::cv;
     my $w; $w = AE::timer 10, 0, sub {
-        warn "Waiting 10 seconds";
+        warn "*** Waiting 10 seconds";
         undef $w;
         $cv2->send;
     };
@@ -123,9 +123,9 @@ sub reader {
                         AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}})->post('statuses/update', {
                             status => $status
                         }, sub {
-                            $_[1] ? say encode_utf8 $_[1]->{text} : warn $_[2];
+                            $_[1] ? say encode_utf8 $_[1]->{text} : warn "*** $_[2]";
                             push @TWEETED, $stream{user};
-                            printf "[%s]\n", join', ', @TWEETED;
+                            printf "Status of tweeted array:\n\t[%s]\n", join ', ', @TWEETED;
                         });
                     }
 
