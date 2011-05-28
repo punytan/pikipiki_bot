@@ -5,11 +5,15 @@ use AnyEvent::Twitter;
 use File::Basename;
 our $BASEDIR = dirname(__FILE__);
 
-&main;
+for ("$BASEDIR/config/nms/oauth.pl", "$BASEDIR/config/piki/oauth.pl") {
+    my $OAuth = do  $_ or die $!;
+    execute($OAuth);
+}
+
 exit;
 
-sub main {
-    my $OAuth = do "$BASEDIR/config/nms/oauth.pl" or die $!;
+sub execute {
+    my $OAuth = shift;
     my $ua = AnyEvent::Twitter->new(%$OAuth);
     my $relation = {
         following => [],
