@@ -29,24 +29,25 @@ $CONFIG->{nms}{words}  = do "config/nms/words.pl"  or die $!;
 
 print Dumper [\@TWEETED, \@NG, $CONFIG] if DEBUG;
 
-while (1) {
-    my $server = {};
+my $CONNECTED;
+my $cv = AE::cv;
+my $w; $w = AE::timer 1, 10, sub {
+    return if $CONNECTED;
 
-    my $server_cv = AE::cv;
+    my $server = {};
     AnyEvent::HTTP::http_get 'http://live.nicovideo.jp/api/getalertinfo', sub {
         my ($body, $hdr) = @_;
 
         warn "*** $hdr->{Status}: $hdr->{Reason}";
-
         if (not $body or $hdr->{Status} ne '200') {
             warn "*** Failed to get alertinfo";
-            $server_cv->send;
+            return;
         }
 
         my $xml = XMLin($body);
         if ($xml->{status} ne 'ok') {
             warn "*** Server status is not OK";
-            $server_cv->send;
+            return;
         }
 
         $server = $xml->{ms};
@@ -56,49 +57,44 @@ while (1) {
             version  => '20061206',
         }, RootName  => 'thread') . "\0";
 
-        $server_cv->send;
-    };
-    $server_cv->recv;
-
-    if ($server->{tag}) {
-        my $cv = AE::cv;
-
-        my $six_hours = 1 * 60 * 60 * 6;
-        my $timer; $timer = AE::timer $six_hours, $six_hours, sub {
-            printf "Status of tweeted array:\n\t[%s]\n", join ', ', @TWEETED;
-            undef @TWEETED;
-        };
-
         my $handle; $handle = AnyEvent::Handle->new(
             connect    => [$server->{addr}, $server->{port}],
-            on_connect => sub { $handle->push_write($server->{tag}) },
-            on_error   => sub {
+            on_connect => sub {
+                $CONNECTED = 1;
+                $handle->push_write($server->{tag});
+            },
+            on_error => sub {
+                $CONNECTED = 0;
+                undef $handle;
                 warn "*** Error $_[2]";
                 $_[0]->destroy;
-                $cv->send
             },
-            on_eof     => sub {
-                $handle->destroy;
+            on_eof => sub {
+                $CONNECTED = 0;
+                undef $handle;
+                $_[0]->destroy;
                 warn "*** Done.";
-                $cv->send
             },
             on_connect_error => sub {
+                $CONNECTED = 0;
+                undef $handle;
                 warn "*** Connect Error";
-                $cv->send
             },
         );
-        $handle->push_read(line => "\0", \&reader);
-        $cv->recv;
-    }
 
-    my $cv2 = AE::cv;
-    my $w; $w = AE::timer 10, 0, sub {
-        warn "*** Waiting 10 seconds";
+        $handle->push_read(line => "\0", \&reader);
+
         undef $w;
-        $cv2->send;
     };
-    $cv2->recv;
-}
+};
+
+my $six_hours = 1 * 60 * 60 * 6;
+my $timer; $timer = AE::timer $six_hours, $six_hours, sub {
+    printf "Status of tweeted array:\n\t[%s]\n", join ', ', @TWEETED if DEBUG;
+    @TWEETED = ();
+};
+
+$cv->recv;
 
 sub reader {
     my ($handle, $tag) = @_;
@@ -125,7 +121,7 @@ sub reader {
                         }, sub {
                             $_[1] ? say encode_utf8 $_[1]->{text} : warn "*** $_[2]";
                             push @TWEETED, $stream{user};
-                            printf "Status of tweeted array:\n\t[%s]\n", join ', ', @TWEETED;
+                            printf "Status of tweeted array:\n\t[%s]\n", join ', ', @TWEETED if DEBUG;
                         });
                     }
 
@@ -142,7 +138,7 @@ sub is_matched {
     my ($xml_str, $user) = @_;
 
     for (@TWEETED) {
-        return undef if $user eq $_;
+        return if $user eq $_;
     }
 
     my ($formed) = normalize($xml_str);
@@ -157,13 +153,14 @@ sub is_matched {
         }
     }
 
-    return undef unless scalar @matched_words;
+    return unless scalar @matched_words;
 
     for (@NG) {
-        return undef if $user eq $_;
+        return if $user eq $_;
     }
 
     $matched_words[0] =~ s/\\//g; # for regex of C++
+
     return +{
         word => $matched_words[0],
         type => $type
@@ -184,13 +181,9 @@ sub construct_status {
     my $status = sprintf "[%s] %s (%s人) - %s / %s http://nico.ms/%s #nicolive [%s]",
             $word, $com, $part, $title, $user->{name}, $xml->{request_id}, $stream->{co};
 
-    return remove_reply($status);
-}
+    $status =~ s/\@/@ /g;
 
-sub remove_reply{
-    my $text = shift;
-    $text =~ s/\@/@ /g;
-    return $text;
+    return $status;
 }
 
 sub is_over400 {
