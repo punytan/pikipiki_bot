@@ -82,7 +82,45 @@ my $w; $w = AE::timer 1, 10, sub {
             },
         );
 
-        $handle->push_read(line => "\0", \&reader);
+        my $reader; $reader = sub {
+            my ($handle, $tag) = @_;
+
+            if ($tag =~ />([^,]+),([^,]+),([^,]+)</) {
+                my %stream = (lv => $1, co => $2, user => $3);
+
+                AnyEvent::HTTP::http_get "http://live.nicovideo.jp/api/getstreaminfo/lv" . $stream{lv}, sub {
+                    my $xml = shift;
+                    return unless $xml;
+
+                    my $xml_str = decode_utf8 $xml;
+                    if (my $meta = is_matched($xml_str, $stream{user})) {
+                        AnyEvent::HTTP::http_get "http://live.nicovideo.jp/watch/lv" . $stream{lv}, sub {
+                            my $res = shift;
+                            return unless $res;
+
+                            my $body = decode_utf8 $res;
+                            if ( $meta->{type} eq 'piki' or ( $meta->{type} eq 'nms' and is_over400($body) ) ) {
+                                my $status = construct_status($body, XMLin($xml), $meta->{word}, \%stream);
+
+                                AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}})->post('statuses/update', {
+                                    status => $status
+                                }, sub {
+                                    $_[1] ? say encode_utf8 $_[1]->{text} : warn "*** $_[2]";
+                                    push @TWEETED, $stream{user};
+                                    printf "Status of tweeted array:\n\t[%s]\n", join ', ', @TWEETED if DEBUG;
+                                });
+                            }
+
+                            print Dumper { meta => $meta } if DEBUG;
+                        };
+                    }
+                };
+            }
+
+            $handle->push_read(line => "\0", $reader);
+        };
+
+        $handle->push_read(line => "\0", $reader);
 
         undef $w;
     };
@@ -95,44 +133,6 @@ my $timer; $timer = AE::timer $six_hours, $six_hours, sub {
 };
 
 $cv->recv;
-
-sub reader {
-    my ($handle, $tag) = @_;
-
-    if ($tag =~ />([^,]+),([^,]+),([^,]+)</) {
-        my %stream = (lv => $1, co => $2, user => $3);
-
-        AnyEvent::HTTP::http_get "http://live.nicovideo.jp/api/getstreaminfo/lv" . $stream{lv}, sub {
-            my $xml = shift;
-            return unless $xml;
-
-            my $xml_str = decode_utf8 $xml;
-            if (my $meta = is_matched($xml_str, $stream{user})) {
-                AnyEvent::HTTP::http_get "http://live.nicovideo.jp/watch/lv" . $stream{lv}, sub {
-                    my $res = shift;
-                    return unless $res;
-
-                    my $body = decode_utf8 $res;
-                    if ( $meta->{type} eq 'piki' or ( $meta->{type} eq 'nms' and is_over400($body) ) ) {
-                        my $status = construct_status($body, XMLin($xml), $meta->{word}, \%stream);
-
-                        AnyEvent::Twitter->new(%{$CONFIG->{$meta->{type}}{oauth}})->post('statuses/update', {
-                            status => $status
-                        }, sub {
-                            $_[1] ? say encode_utf8 $_[1]->{text} : warn "*** $_[2]";
-                            push @TWEETED, $stream{user};
-                            printf "Status of tweeted array:\n\t[%s]\n", join ', ', @TWEETED if DEBUG;
-                        });
-                    }
-
-                    print Dumper { meta => $meta } if DEBUG;
-                };
-            }
-        };
-    }
-
-    $handle->push_read(line => "\0", \&reader);
-}
 
 sub is_matched {
     my ($xml_str, $user) = @_;
