@@ -5,6 +5,11 @@ use AnyEvent::Twitter;
 use File::Basename;
 our $BASEDIR = dirname(__FILE__);
 
+local $SIG{__DIE__} = sub {
+    warn $_ for @_;
+    exit 1;
+};
+
 for ("$BASEDIR/config/nms/oauth.pl", "$BASEDIR/config/piki/oauth.pl") {
     my $OAuth = do  $_ or die $!;
     execute($OAuth);
