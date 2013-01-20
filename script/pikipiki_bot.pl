@@ -34,6 +34,7 @@ my $app = App::Pikipiki->new(
         token           => $config->{token}{token},
         token_secret    => $config->{token}{token_secret},
     },
+    log_level => $ENV{PIKIPIKI_LOG_LEVEL} || 'info',
 );
 
 AE::log(debug => "start run");
