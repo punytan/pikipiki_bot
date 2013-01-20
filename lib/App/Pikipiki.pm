@@ -79,15 +79,12 @@ sub read_stream {
 
     my $reader; $reader = sub {
         my ($handle, $line) = @_;
-        my $stream = XMLin($line);
-        $self->log(debug => Dumper $stream);
+        my ($lv, $co, $user) = ($line =~ />([^,]+),([^,]+),([^,]+)</);
 
-        unless ($stream->{content}) {
+        unless ($lv && $co && $user) {
             $handle->push_read(line => $SEPARATOR, $reader);
             return;
         }
-
-        my ($lv, $co, $user) = split /,/, $stream->{content};
 
         if ($self->cache->get("user_id:$user")) {
             $handle->push_read(line => $SEPARATOR, $reader);
