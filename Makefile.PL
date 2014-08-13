@@ -7,10 +7,10 @@ requires 'AnyEvent::HTTP';
 requires 'AnyEvent::Handle';
 requires 'AnyEvent::Log';
 requires 'AnyEvent::Twitter';
-requires 'Cache::LRU::WithExpires';
+requires 'Config::PP';
 requires 'EV';
-requires 'JSON';
 requires 'Web::Scraper';
+requires 'Unicode::Normalize';
 requires 'XML::Simple';
 
 tests 't/*.t';
